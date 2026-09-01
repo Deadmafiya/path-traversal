@@ -60,6 +60,14 @@ path-traversal -u "http://example.com/download?file=" -p windows
 
 Tests `..\..\..\windows\win.ini`, backslash encodings, drive-relative paths, and device names.
 
+### Null-byte truncation (bypass extension checks)
+
+```bash
+path-traversal -u "http://example.com/upload?file=" -n .jpg
+```
+
+Appends `%00.jpg` to every payload so the server validates the `.jpg` extension but truncates at the null byte and reads the underlying file (classic PHP < 5.3.4 behavior). Accepts `.jpg`, `jpg`, or `%00.jpg`.
+
 ### Options
 
 | Flag | Description | Default |
@@ -68,6 +76,7 @@ Tests `..\..\..\windows\win.ini`, backslash encodings, drive-relative paths, and
 | `-p, --platform` | `unix` or `windows` | `unix` |
 | `-d, --depth` | Number of `../` directories | `10` |
 | `-t, --threads` | Concurrent requests | `1` |
+| `-n, --nullbyte` | Append null-byte suffix (e.g. `-n .jpg` → `%00.jpg`) | off |
 | `--timeout` | Request timeout in seconds | `10` |
 | `-o, --only-interesting` | Show only non-404 responses | off |
 | `--no-live` | Wait, then print table (no streaming) | off |

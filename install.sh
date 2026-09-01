@@ -19,7 +19,7 @@ set -euo pipefail
 PREFIX=""
 DO_VERIFY=1
 INSTALL_DIR=""
-VERSION="1.4.0"
+VERSION="1.8.0"
 
 # The directory this script lives in (the project root).
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

