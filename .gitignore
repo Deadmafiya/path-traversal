@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Environment
+.venv/
+venv/
+env/
+
+# Claude / editor
+.claude-flow/
+.idea/
+.vscode/
+
+# OS
+.DS_Store
