@@ -1,5 +1,0 @@
-# Runtime dependencies for exploit-path-traversal
-httpx>=0.27
-
-# Optional: only needed to import YAML OpenAPI/Swagger specs (JSON works without it)
-PyYAML>=6.0
