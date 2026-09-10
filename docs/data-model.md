@@ -69,6 +69,35 @@ vectors           [ InputVector-as-dict, ... ]     sorted by relevance desc
 ai_inferred_vectors [ InputVector-as-dict, ... ]
 ```
 
+## `stage3-findings.json`
+
+Extends the Stage 2 schema with tiered mechanism attribution:
+
+```
+tool, version, stage=3, stage_name="tiered-mechanism-attribution"
+source_artifact, started, finished, duration_sec
+config   { min_relevance, canary, depth_max, max_payloads, thorough, ai,
+           platform, has_filter, has_extension_validation, has_prefix_check,
+           has_canonicalization }
+counts   { vectors_selected, confirmed, likely, inconclusive, not_vulnerable }
+tier_stats { "<tier-id>": { count, bypass_categories[] } }
+ai_errors [ "<vector id>: <message>" ]
+findings [
+  {
+    ... (same fields as stage2-findings.json) ...
+    tier               winning payload's tier id ("0", "0A", "1", ..., "29")
+    tier_name          human-readable tier name
+    mechanism          what defensive layer was bypassed
+    bypass_category    representation | normalization | parser-differential | path-boundary
+    attribution        { tier, tier_name, mechanism, bypass_category,
+                         bypass_label, payload_class, validation_defeated,
+                         transformation_responsible, confidence, notes[] }
+    tiers_applicable   [ all tier ids that applied to this vector ]
+    probes[].tier      per-probe tier attribution
+  }
+]
+```
+
 ## `stage2-findings.json`
 
 ```

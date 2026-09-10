@@ -16,11 +16,13 @@ this tool is built toward one goal:
 |------:|---------|-------|--------|-----|
 | 1 | `stage1` | a URL to crawl and/or OpenAPI / HAR / Postman files | `stage1-vectors.json` | [stage-1.md](stage-1.md) |
 | 2 | `stage2` | `stage1-vectors.json` (or a target surface — runs stage 1 first) | `stage2-findings.json` | [stage-2.md](stage-2.md) |
+| 3 | `stage3` | `stage1-vectors.json` (or a target surface — runs stage 1 first) | `stage3-findings.json` | [stage-3.md](stage-3.md) |
 | 4 | `report` | `stage2-findings.json` (+ the stage 1 artifact) | `report.md` | [stage-4-report.md](stage-4-report.md) |
 
-Stage 3 (verification / evidence) is not a separate command — its work
-(reproduction, round-trip confirmation, differential comparison) is folded into
-Stage 2's classifier.
+Stage 3 is **tiered mechanism-attribution probing**: it organizes traversal
+test inputs into tiers based on the defensive mechanism they target, so every
+finding is attributed to *which parser / filter / validation layer was
+bypassed* rather than merely "a payload worked".
 
 ## Documents
 
@@ -31,6 +33,7 @@ Stage 2's classifier.
 | [data-model.md](data-model.md) | `RawRequest`, `InputVector`, the two JSON artifacts, the findings schema |
 | [stage-1.md](stage-1.md) | **every step** Stage 1 performs |
 | [stage-2.md](stage-2.md) | **every step** Stage 2 performs |
+| [stage-3.md](stage-3.md) | **every step** Stage 3 performs — the tiered mechanism-attribution model |
 | [stage-4-report.md](stage-4-report.md) | how the Markdown report is built |
 | [payloads.md](payloads.md) | the encoding taxonomy, canaries, depth ladder, write-side payloads |
 | [verdicts.md](verdicts.md) | how a response is classified; thresholds and confidence values |
@@ -48,11 +51,15 @@ cp .env.example .env          # fill in EPT_AI_BASE_URL / _MODEL / _API_KEY (opt
 # one shot: crawl + enumerate + probe
 exploit-path-traversal stage2 -u https://target.example.com
 
+# tiered mechanism-attribution probing
+exploit-path-traversal stage3 --in ./ept-out/stage1-vectors.json
+
 # or step by step
 exploit-path-traversal stage1 -u https://target.example.com --openapi ./api.yaml
 exploit-path-traversal stage2 --in ./ept-out/stage1-vectors.json
+exploit-path-traversal stage3 --in ./ept-out/stage1-vectors.json
 exploit-path-traversal report --in ./ept-out/stage2-findings.json
 ```
 
-The AI layer is optional. Without `EPT_AI_*` set, both stages run fully on their
+The AI layer is optional. Without `EPT_AI_*` set, all stages run fully on their
 deterministic paths and say so.

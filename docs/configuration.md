@@ -8,7 +8,7 @@ For every setting: **CLI flag > process environment > `.env` file**.
 ## AI agent (optional)
 
 The agent talks to any OpenAI-compatible `POST {base_url}/chat/completions`.
-If base URL, model and key are not all present, both stages run on their
+If base URL, model and key are not all present, all stages run on their
 deterministic paths and print why the AI was skipped.
 
 | Setting | Env (first found wins) | Default |
@@ -80,6 +80,52 @@ Notes:
 | | `-H / -b` | — | extra header / cookie (repeatable) |
 | | `--no-ai` | off | skip AI adjudication |
 | | `--app-hint / --env-file` | | as in `stage1` |
+| output | `-o, --out` | `./ept-out` | output directory |
+| | `--json-only` | off | write JSON, skip the terminal summary |
+
+### `stage3`
+
+| Group | Flag | Default | Meaning |
+|-------|------|---------|---------|
+| input | `--in FILE` | — | `stage1-vectors.json` to probe |
+| | `-u/--seed/--openapi/--har/--postman` | — | run Stage 1 first with these, then probe |
+| | `--scope / --depth / --max-pages` | | passed to the Stage 1 crawl if it runs |
+| selection | `--min-relevance` | 0.4 | only probe vectors at/above this score |
+| | `--location` | all | comma list of locations to probe |
+| | `--only ID` | — | probe just this vector id (repeatable) |
+| | `--baseline 'name=value'` | — | force a known-good value for a field (repeatable) |
+| probing | `--canary` | `unix` | `unix` (`/etc/passwd`), `windows`, or `both` |
+| | `--depth-max` | 6 | max `../` depth |
+| | `--max-payloads` | 120 | payload cap per vector |
+| | `--thorough` | off | extra canary targets + payloads |
+| | `--rate` | 6 | max requests/sec |
+| | `--timeout` | 15 | per-request timeout (s) |
+| | `--insecure` | off | skip TLS verification |
+| | `-H / -b` | — | extra header / cookie (repeatable) |
+| | `--no-ai` | off | skip AI adjudication |
+| | `--app-hint / --env-file` | | as in `stage1` |
+| target | `--platform` | auto | `unix` or `windows` (enables platform tiers) |
+| | `--filter` | off | a WAF/custom filter is suspected |
+| | `--extension-validation` | off | app validates extensions (tier 7) |
+| | `--prefix-check` | off | app does startsWith(base) checks (tier 6) |
+| | `--canonicalization` | off | app canonicalizes paths (tier 18) |
+| | `--multi-service` | off | proxy/CDN/WAF in front (tiers 10–11) |
+| | `--legacy` | off | legacy stack (tier 9) |
+| | `--ntfs` | off | NTFS behavior (tier 15) |
+| | `--links` | off | symlink/hardlink resolution (tier 17) |
+| | `--unc` | off | UNC paths (tier 13) |
+| | `--windows-filename` | off | Windows filename quirks (tier 14) |
+| | `--compound` | off | compound transformations (tier 19) |
+| | `--multi-language` | off | multi-language boundaries (tier 20) |
+| | `--protocol-variants` | off | protocol-specific variants (tier 21) |
+| | `--second-order` | off | stored traversal (tier 22) |
+| | `--derived-value` | off | derived-value traversal (tier 23) |
+| | `--collision` | off | normalization equivalence (tier 24) |
+| | `--case` | off | case sensitivity (tier 25) |
+| | `--basename-dirname` | off | basename/dirname discrepancies (tier 26) |
+| | `--absolute-join` | off | absolute-path replacement during join (tier 27) |
+| | `--parser-syntax` | off | special parser syntaxes (tier 28) |
+| | `--waf-mutation` | off | WAF/filter mutation (tier 29) |
 | output | `-o, --out` | `./ept-out` | output directory |
 | | `--json-only` | off | write JSON, skip the terminal summary |
 

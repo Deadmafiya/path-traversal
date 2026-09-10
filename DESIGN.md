@@ -26,10 +26,10 @@ Reasons 100% is impossible (keep these in mind at every stage):
 
 | Stage | Name | Status |
 |------:|------|--------|
-| 1 | Input-vector enumeration (source-to-sink dataflow inventory) | **implemented** |
-| 2 | Baseline-first differential probing (per-vector baseline, control, payloads, classify) | **implemented** |
-| 3 | Verification / evidence collection (timing, OOB for blind cases, richer diff) | partial — folded into Stage 2's classify + reproduce; OOB still planned |
-| 4 | Reporting (findings, reproduction, confidence) | partial — `stage2-findings.json` + curl repro; standalone md report planned |
+| 1 | Input-vector enumeration | **implemented** |
+| 2 | Baseline-first differential probing | **implemented** |
+| 3 | Tiered mechanism-attribution probing | **implemented** |
+| 4 | Reporting (findings, reproduction, confidence) | **implemented** — `report.md` |
 
 Each stage reads the previous stage's JSON artifact. Stage 1 writes
 `<out>/stage1-vectors.json`.
@@ -239,8 +239,9 @@ exploit_path_traversal/
   spec/             openapi, har, postman importers + auto-detect
   vectors/          lexicon, scoring (rule), coverage (A–L), extractor
   agent/            client, prompts, classifier   <-- REVISIT seam
-  stages/stage1.py  orchestration
-  report/writer.py  JSON artifact + terminal summary
+  tiers/            registry, generator, attribution, selector  (Stage 3)
+  stages/           stage1, stage2, stage3 orchestration
+  report/           writer, stage2_writer, stage3_writer, report_md
 ```
 
 ## Open TODO (post-v0.1)
@@ -251,14 +252,13 @@ exploit_path_traversal/
 - [x] Stage 2: write-side round-trip confirmation (guessed served locations).
 - [x] Stage 2: harvest identifier values from Stage 1 crawl → baseline candidates.
 - [x] Stage 4: `report` subcommand → `report.md`.
-- [ ] Stage 2: real OOB channel (callback server / DNS) for blind + write-side
+- [x] Stage 3: tiered mechanism-attribution probing (`stages/stage3.py`,
+      `tiers/`). Verified e2e against a local vulnerable server.
+- [ ] Stage 2/3: real OOB channel (callback server / DNS) for blind + write-side
       cases the round-trip guesser misses.
-- [ ] Stage 2: richer timing analysis; GraphQL / WebSocket injection.
-- [ ] Stage 2: raw `../` in URL path (needs a transport that bypasses httpx
+- [ ] Stage 2/3: richer timing analysis; GraphQL / WebSocket injection.
+- [ ] Stage 2/3: raw `../` in URL path (needs a transport that bypasses httpx
       path normalization).
-- [ ] Stage 3: verification — content signatures, response differential,
-      timing, optional OOB callback server for blind cases
-- [ ] Stage 4: findings report (md + json) with reproduction + confidence
 - [ ] Auth: login flow / bearer refresh for crawling authed surface
 - [ ] GraphQL introspection → argument enumeration
 - [ ] WebSocket message capture input

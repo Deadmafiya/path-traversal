@@ -24,7 +24,7 @@
 
 ```
 exploit_path_traversal/
-  cli.py             argparse; one subcommand per stage (stage1 / stage2 / report)
+  cli.py             argparse; one subcommand per stage (stage1 / stage2 / stage3 / report)
   config.py          Settings + AIConfig; env + .env loading, precedence
   models.py          RawRequest, InputVector  (see data-model.md)
   http_client.py     httpx.Client wrapper: TLS toggle, rate limit, 1 retry
@@ -62,13 +62,21 @@ exploit_path_traversal/
     baseline.py      establish() baseline + negative_control()
     differ.py        classify(): payload response vs baseline vs control -> verdict
 
+  tiers/
+    registry.py      the 31-tier mechanism model (Tier 0..29)
+    generator.py     tiered payload synthesis (read + write)
+    attribution.py   mechanism attribution (which layer was bypassed)
+    selector.py      tier selection from a target/vector profile
+
   stages/
     stage1.py        Stage 1 orchestration (run + Stage1Report)
     stage2.py        Stage 2 orchestration (run + Stage2Options)
+    stage3.py        Stage 3 orchestration (run + Stage3Options)
 
   report/
     writer.py        Stage 1 JSON artifact + terminal summary
     stage2_writer.py Stage 2 JSON artifact + terminal summary
+    stage3_writer.py Stage 3 JSON artifact + terminal summary
     report_md.py     Stage 4 Markdown report
 ```
 
@@ -90,28 +98,45 @@ exploit_path_traversal/
                  stage1-vectors.json
                   { vectors[], request_templates[], harvested_values{}, coverage{} }
                           │
-                 ┌────────▼──────── stage2 ────────┐
-                 │  select vectors  (min-relevance)│
-                 │        ↓  probe/prepared         │
-                 │  Prepared request per vector    │
-                 │        ↓  probe/baseline         │
-                 │  baseline fingerprint + control │
-                 │        ↓  probe/payloads         │
-                 │  payload set (read | write)     │
-                 │        ↓  probe/differ           │
-                 │  verdict per payload -> best    │
-                 │  + round-trip / reproduce       │
-                 │        ↓  agent/verify (opt)     │
-                 │  + AI adjudication              │
-                 └────────┬────────────────────────┘
-                          ▼
-                 stage2-findings.json
-                          │
-                 ┌────────▼──── report ────────────┐
-                 │  report_md.render()             │
-                 └────────┬────────────────────────┘
-                          ▼
-                      report.md
+                  ┌────────▼──────── stage2 ────────┐
+                  │  select vectors  (min-relevance)│
+                  │        ↓  probe/prepared         │
+                  │  Prepared request per vector    │
+                  │        ↓  probe/baseline         │
+                  │  baseline fingerprint + control │
+                  │        ↓  probe/payloads         │
+                  │  payload set (read | write)     │
+                  │        ↓  probe/differ           │
+                  │  verdict per payload -> best    │
+                  │  + round-trip / reproduce       │
+                  │        ↓  agent/verify (opt)     │
+                  │  + AI adjudication              │
+                  └────────┬────────────────────────┘
+                           ▼
+                  stage2-findings.json
+                           │
+                  ┌────────▼──────── stage3 ────────┐
+                  │  select vectors  (min-relevance)│
+                  │        ↓  tiers/selector         │
+                  │  tier profile + applicable tiers│
+                  │        ↓  tiers/generator        │
+                  │  tiered payload set             │
+                  │        ↓  probe/differ           │
+                  │  verdict per payload -> best    │
+                  │  + round-trip / reproduce       │
+                  │        ↓  tiers/attribution      │
+                  │  mechanism attribution          │
+                  │        ↓  agent/verify (opt)     │
+                  │  + AI adjudication              │
+                  └────────┬────────────────────────┘
+                           ▼
+                  stage3-findings.json
+                           │
+                  ┌────────▼──── report ────────────┐
+                  │  report_md.render()             │
+                  └────────┬────────────────────────┘
+                           ▼
+                       report.md
 ```
 
 ## The HTTP client (`http_client.py`)
@@ -127,6 +152,6 @@ A single `httpx.Client` per stage run:
 - one retry on `httpx.TransportError`; on the second failure it records
   `last_error` and returns `None`
 
-Stage 2's `probe/fingerprint.capture()` and the round-trip reads all go through
-this same client, so scope, auth, throttling and TLS behaviour are identical to
-the crawl.
+Stage 2's and Stage 3's `probe/fingerprint.capture()` and the round-trip reads
+all go through this same client, so scope, auth, throttling and TLS behaviour
+are identical to the crawl.

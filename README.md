@@ -5,8 +5,8 @@ AI-assisted, staged path-traversal discovery and verification toolkit.
 Use it only against systems you are **authorized** to test.
 
 **Full documentation is in [`docs/`](docs/README.md)** — including
-[stage-1.md](docs/stage-1.md) and [stage-2.md](docs/stage-2.md), which walk
-through every step the tool performs.
+[stage-1.md](docs/stage-1.md), [stage-2.md](docs/stage-2.md), and
+[stage-3.md](docs/stage-3.md), which walk through every step the tool performs.
 
 > Successor to the old `path-traversal` encoding brute-forcer. That single-file
 > tool has been removed; its encoding taxonomy (`encoding-techniques.md`) is
@@ -24,7 +24,7 @@ four stages:
 |------:|------|--------|
 | 1 | Input-vector enumeration | **available** (`stage1`) |
 | 2 | Baseline-first differential probing | **available** (`stage2`) |
-| 3 | Verification / evidence | folded into Stage 2 (reproduce + round-trip; real OOB still planned) |
+| 3 | Tiered mechanism-attribution probing | **available** (`stage3`) |
 | 4 | Markdown report | **available** (`report`) |
 
 See [DESIGN.md](DESIGN.md) for architecture and roadmap.
@@ -106,7 +106,7 @@ exploit-path-traversal stage1 -u https://app.example.com \
 
 - terminal: header, crawl/import stats, top vectors by relevance, the A–L
   coverage matrix with gap notes
-- `<out>/stage1-vectors.json`: the full inventory — the input to Stage 2
+- `<out>/stage1-vectors.json`: the full inventory — the input to Stages 2 and 3
 
 Output style is deliberately plain: bold/dim only, honours `NO_COLOR` and
 non-TTY, no decorative symbols.
@@ -167,6 +167,70 @@ exploit-path-traversal stage2 --openapi ./api.json --canary windows \
   (null-byte variants are tried but modern runtimes reject them)
 - raw `../` in a URL path isn't sent (httpx normalizes it) — only encoded
   separators for path-segment vectors
+
+## Stage 3 — tiered mechanism-attribution probing
+
+Stage 3 does **not** execute one giant, undifferentiated traversal wordlist.
+It organizes test inputs into **tiers based on the mechanism they are intended
+to defeat** — literal path semantics → encoding → normalization → parser
+differentials → platform semantics → filesystem semantics — so every finding
+is attributed to *which parser / filter / validation layer was bypassed*.
+
+### Usage
+
+```bash
+# probe an existing stage 1 artifact
+exploit-path-traversal stage3 --in ./ept-out/stage1-vectors.json
+
+# Windows target with extension validation and prefix checks
+exploit-path-traversal stage3 --in ./ept-out/stage1-vectors.json \
+    --platform windows --extension-validation --prefix-check
+
+# WAF in front, legacy stack, compound transformations
+exploit-path-traversal stage3 --in ./ept-out/stage1-vectors.json \
+    --filter --legacy --compound --waf-mutation
+```
+
+### Key options
+
+| Flag | Meaning |
+|------|---------|
+| `--in FILE` | `stage1-vectors.json` to probe (else give `-u`/`--openapi`/… to run stage 1 first) |
+| `--min-relevance` | only probe vectors at/above this score (default 0.4) |
+| `--platform` | `unix` or `windows` (enables platform-specific tiers) |
+| `--filter` | a WAF/custom filter is suspected |
+| `--extension-validation` | app validates file extensions (enables tier 7) |
+| `--prefix-check` | app does startsWith(base) checks (enables tier 6) |
+| `--canonicalization` | app canonicalizes paths (enables tier 18) |
+| `--multi-service` | proxy/CDN/WAF in front (enables tiers 10–11) |
+| `--legacy` | legacy stack (enables tier 9) |
+| `--ntfs` | NTFS behavior (enables tier 15) |
+| `--links` | symlink/hardlink resolution (enables tier 17) |
+| `--unc` | UNC paths (enables tier 13) |
+| `--windows-filename` | Windows filename quirks (enables tier 14) |
+| `--compound` | compound transformations (enables tier 19) |
+| `--multi-language` | multi-language boundaries (enables tier 20) |
+| `--protocol-variants` | protocol-specific variants (enables tier 21) |
+| `--second-order` | stored traversal (enables tier 22) |
+| `--derived-value` | derived-value traversal (enables tier 23) |
+| `--collision` | normalization equivalence (enables tier 24) |
+| `--case` | case sensitivity (enables tier 25) |
+| `--basename-dirname` | basename/dirname discrepancies (enables tier 26) |
+| `--absolute-join` | absolute-path replacement during join (enables tier 27) |
+| `--parser-syntax` | special parser syntaxes (enables tier 28) |
+| `--waf-mutation` | WAF/filter mutation (enables tier 29) |
+| `--no-ai` | skip AI adjudication |
+| `--rate` / `--timeout` / `--insecure` / `-H` / `-b` | HTTP controls |
+
+### Output
+
+- terminal: verdict counts, tier stats, and each non-clean finding with its
+  bypass label (REPRESENTATION / NORMALIZATION / PARSER DIFFERENTIAL /
+  PATH-BOUNDARY), mechanism, validation defeated, and transformation responsible
+- `<out>/stage3-findings.json`: every finding with tier attribution, baseline +
+  control fingerprints, and the full probe list
+
+See [docs/stage-3.md](docs/stage-3.md) for the complete tier model.
 
 ## Stage 4 — Markdown report
 
