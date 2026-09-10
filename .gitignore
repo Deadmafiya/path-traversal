@@ -1,17 +1,21 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
+# secrets — never commit the real agent config
+.env
 
-# Environment
+# tool output
+ept-out/
+*.stage1-vectors.json
+*.stage2-findings.json
+
+# local agent/mcp tooling state (not part of this project)
+.claude-flow/
+.hive-mind/
+.swarm/
+
+# python
+__pycache__/
+*.py[cod]
 .venv/
 venv/
-env/
-
-# Claude / editor
-.claude-flow/
-.idea/
-.vscode/
-
-# OS
-.DS_Store
+*.egg-info/
+build/
+dist/
