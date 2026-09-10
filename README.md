@@ -4,9 +4,14 @@ AI-assisted, staged path-traversal discovery and verification toolkit.
 
 Use it only against systems you are **authorized** to test.
 
+**Full documentation is in [`docs/`](docs/README.md)** — including
+[stage-1.md](docs/stage-1.md) and [stage-2.md](docs/stage-2.md), which walk
+through every step the tool performs.
+
 > Successor to the old `path-traversal` encoding brute-forcer. That single-file
-> tool has been removed; its encoding taxonomy lives on in git history
-> (`encoding-techniques.md`) and will be folded into Stage 2.
+> tool has been removed; its encoding taxonomy (`encoding-techniques.md`) is
+> distilled into `probe/payloads.py` and documented in
+> [docs/payloads.md](docs/payloads.md).
 
 ## What it is
 
